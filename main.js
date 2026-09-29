@@ -46,6 +46,7 @@ load();
 if (S.activeId && !activeSession()) S.activeId = null;
 render();
 if (activeSession()) wake.on();
+if (!S.settings.onboarded) onboardingSheet();
 setInterval(() => {
   tick();
   const el = $('#el-clock'), a = activeSession();

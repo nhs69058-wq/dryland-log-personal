@@ -3,6 +3,7 @@ const ACTS = {};
 const ui = { tab: 'today', edit: null, calMonth: null, calSel: null, progEx: null, progMetric: 'e1rm' };
 let kp = null;        // {itemId, i, f:'w'|'r', fresh}
 let editLayer = null;
+let celebratedGoals = new Set(); // 이번 운동에서 이미 축하한 목표 id (중복 알림 방지)
 
 // 지금 편집 중인 대상: 진행 중인 운동(active) · 지난 기록 수정(edit) · 루틴(routine)
 function edCtx() {
@@ -23,6 +24,7 @@ function startSession(items) {
   const s = { id: uid(), type: 'weight', date: today(), place: lastPlace, cond: null, note: '', items: items || [], swim: null, start: Date.now(), end: null };
   S.sessions.push(s);
   S.activeId = s.id;
+  celebratedGoals = new Set();
   save();
   audioUnlock();
   wake.on();
@@ -43,7 +45,8 @@ function renderEditor(ctx) {
   const { kind, obj } = ctx;
   let head;
   if (kind === 'active') {
-    head = `<div class="grow"><div class="ttl">운동 중</div><div class="clock" id="el-clock">${fmtDur(Date.now() - obj.start)}</div></div>
+    const st = sessionStats(obj);
+    head = `<div class="grow"><div class="ttl">운동 중 <span class="small ink2" style="font-weight:500">· ${st.sets}세트 · ${st.vol.toLocaleString()}kg</span></div><div class="clock" id="el-clock">${fmtDur(Date.now() - obj.start)}</div></div>
       <button class="btn btn-primary btn-sm" data-act="finish">운동 완료</button>`;
   } else {
     const sub = kind === 'routine'
@@ -243,6 +246,18 @@ $('#keypad').addEventListener('click', (e) => {
 
 // ── 세트 완료 → 다음 칸 이동 · 휴식 시작 ──
 const firstOpen = (it) => it.sets.findIndex((s) => !s.done);
+// 방금 완료한 세트가 이 종목의 목표를 새로 달성했으면 즉석에서 축하 (세션당 목표별 1회)
+function checkGoalCelebration(ctx, it, s) {
+  if (ctx.kind !== 'active' || s.wu || s.w == null || s.r == null) return;
+  const ex = exById(it.ex);
+  for (const g of S.goals) {
+    if (g.ex !== it.ex || celebratedGoals.has(g.id)) continue;
+    if (s.w >= g.w && s.r >= g.r) {
+      celebratedGoals.add(g.id);
+      toast(`🎉 목표 달성! ${exPrimary(ex)} ${fmtW(ex, g.w)}kg × ${g.r}회`);
+    }
+  }
+}
 function completeSet(ctx, it, i, fromKeypad) {
   if (ctx.kind === 'routine') {
     const order = cellOrder(ctx);
@@ -256,6 +271,7 @@ function completeSet(ctx, it, i, fromKeypad) {
   s.done = true;
   save();
   buzz(25);
+  checkGoalCelebration(ctx, it, s);
   const items = ctx.obj.items;
   const grp = it.g ? items.filter((x) => x.g === it.g) : [it];
   let target = null, rest = true;
@@ -271,7 +287,7 @@ function completeSet(ctx, it, i, fromKeypad) {
     }
   }
   if (ctx.kind === 'active' && target && rest) {
-    startRest(Math.max(...grp.map((g) => exById(g.ex).rest || S.settings.rest)));
+    startRest(Math.max(...grp.map((g) => exById(g.ex).rest || S.settings.rest)), exPrimary(exById(target[0].ex)));
   }
   render();
   if (fromKeypad || kp) {
@@ -281,8 +297,8 @@ function completeSet(ctx, it, i, fromKeypad) {
 }
 
 // ── 휴식 타이머 ──
-function startRest(sec) {
-  S.timer = { end: Date.now() + sec * 1000, total: sec, fired: false };
+function startRest(sec, nextLabel) {
+  S.timer = { end: Date.now() + sec * 1000, total: sec, fired: false, next: nextLabel || '' };
   save();
   tick();
 }
@@ -298,7 +314,7 @@ function tick() {
     save();
     beep();
     buzz([300, 120, 300, 120, 500]);
-    if (document.hidden) notifyRest('다음 세트를 시작하세요');
+    if (document.hidden) notifyRest(t.next ? `${t.next} · 다음 세트를 시작하세요` : '다음 세트를 시작하세요');
   }
   if (!rb.firstChild) {
     rb.innerHTML = `<span class="dialbox"></span><div><div class="t"></div><div class="lbl"></div></div>
@@ -309,7 +325,7 @@ function tick() {
   rb.classList.toggle('over', over);
   rb.querySelector('.dialbox').innerHTML = dialSVG(remain / (t.total * 1000), (t.total * 1000 - remain) / 1000);
   rb.querySelector('.t').textContent = over ? '+' + fmtDur(-remain) : fmtDur(remain + 999);
-  rb.querySelector('.lbl').textContent = over ? '휴식 끝 · 다음 세트' : `휴식 ${fmtDur(t.total * 1000)}`;
+  rb.querySelector('.lbl').textContent = over ? `휴식 끝${t.next ? ' · ' + t.next : ' · 다음 세트'}` : `휴식 ${fmtDur(t.total * 1000)}${t.next ? ' · ' + t.next : ''}`;
   rb.querySelector('[data-rt="skip"]').textContent = over ? '닫기' : '건너뛰기';
   syncDock();
 }

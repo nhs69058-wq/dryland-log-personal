@@ -1,6 +1,6 @@
 // 데이터 저장과 계산 (폰의 localStorage에 저장)
 const KEY = 'dryland.v1';   // 저장소 이름 (바꾸면 기록이 안 보이니 그대로 두기)
-const APP_VERSION = 'v6';   // 더보기 화면에 표시 · sw.js의 VERSION과 같이 올리기
+const APP_VERSION = 'v10';   // 더보기 화면에 표시 · sw.js의 VERSION과 같이 올리기
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 const CAT = { lower: '하체', pull: '당기기', push: '밀기', power: '파워·점프', core: '코어·어깨' };
 const MODES = {
@@ -33,8 +33,8 @@ function fmtDur(ms) {
 
 function defaults() {
   return {
-    v: 1, exercises: [], sessions: [], routines: [], goals: [], events: [], trash: [], checkins: {},
-    settings: { bw: null, rest: 90, sound: true, vibrate: true, awake: true, notify: false, lastBackup: null },
+    v: 1, exercises: [], sessions: [], routines: [], goals: [], events: [], trash: [], checkins: {}, bodyweights: [],
+    settings: { bw: null, rest: 90, sound: true, vibrate: true, awake: true, notify: false, lastBackup: null, onboarded: false },
     activeId: null, timer: null,
   };
 }
@@ -47,6 +47,8 @@ function load() {
       S.settings = Object.assign(defaults().settings, d.settings);
       if (!Array.isArray(S.trash)) S.trash = [];
       if (!S.checkins || typeof S.checkins !== 'object') S.checkins = {};
+      if (!Array.isArray(S.bodyweights)) S.bodyweights = [];
+      if (!S.settings.onboarded && S.sessions.length) S.settings.onboarded = true; // 이미 기록이 있으면 신규 사용자가 아니므로 안내를 건너뜀
       if (purgeTrash()) save();
       return;
     }
@@ -121,7 +123,7 @@ function platesHint(w) {
 function e1rm(ex, s) {
   if (!hasW(ex) || s.w == null || !s.r || s.wu) return null;
   const f = s.r <= 1 ? 1 : 1 + Math.min(s.r, 12) / 30;
-  if (ex.mode === 'added' && S.settings.bw) return (S.settings.bw + s.w) * f - S.settings.bw;
+  if (ex.mode === 'added' && latestBW()) return (latestBW() + s.w) * f - latestBW();
   return s.w * f;
 }
 
@@ -163,7 +165,7 @@ function sessionStats(s) {
       if (!x.done) continue;
       sets++;
       if (x.wu || !hasW(ex) || x.w == null || !x.r) continue;
-      vol += (ex.mode === 'added' ? (S.settings.bw || 0) + x.w : x.w) * x.r;
+      vol += (ex.mode === 'added' ? (latestBW() || 0) + x.w : x.w) * x.r;
     }
   }
   return { sets, vol: Math.round(vol), ex: s.items.filter((i) => i.sets.length || i.note).length };
@@ -243,6 +245,42 @@ function restoreSession(id) {
   save();
 }
 const trashDaysLeft = (t) => Math.max(1, Math.ceil((t.at + TRASH_DAYS * 86400000 - Date.now()) / 86400000));
+
+// ── 몸무게 기록: 날짜별 기록 중 가장 최근 값을 씀 (예전 단일 입력값은 자동 이전) ──
+function latestBW() {
+  if (S.bodyweights.length) return S.bodyweights.slice().sort((a, b) => b.date.localeCompare(a.date))[0].w;
+  return S.settings.bw || null;
+}
+function setBW(date, w) {
+  S.bodyweights = S.bodyweights.filter((b) => b.date !== date);
+  S.bodyweights.push({ date, w });
+  save();
+}
+
+// ── 주간 요약: 이번 주 세션·볼륨, 연속 훈련 주차 (월요일 시작) ──
+function mondayOf(d) {
+  const day = (d.getDay() + 6) % 7;
+  const m = new Date(d);
+  m.setDate(d.getDate() - day);
+  m.setHours(0, 0, 0, 0);
+  return m;
+}
+const weekKey = (dateStr) => iso(mondayOf(parseISO(dateStr)));
+function weekStats() {
+  const wk = weekKey(today());
+  let sessions = 0, vol = 0;
+  const weeks = new Set();
+  for (const s of doneSessions()) {
+    const k = weekKey(s.date);
+    weeks.add(k);
+    if (k === wk) { sessions++; if (s.type === 'weight') vol += sessionStats(s).vol; }
+  }
+  let streak = 0;
+  const cursor = mondayOf(parseISO(today()));
+  if (!weeks.has(iso(cursor))) cursor.setDate(cursor.getDate() - 7);
+  while (weeks.has(iso(cursor))) { streak++; cursor.setDate(cursor.getDate() - 7); }
+  return { sessions, vol: Math.round(vol), streak };
+}
 
 // ── 아침 컨디션 체크인: 날짜별 수면 · 몸 상태 · 의욕 (1~5) ──
 function checkinPoints() {

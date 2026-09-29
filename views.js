@@ -38,6 +38,30 @@ function goalsHtml() {
   }).join('');
 }
 
+// 이번 주 세션 · 볼륨 · 연속 훈련 주차 (활동이 전혀 없으면 숨김)
+function weekSummaryTiles() {
+  const w = weekStats();
+  if (!w.sessions && !w.streak) return '';
+  return `<div class="tiles">
+    <div class="tile"><div class="l">이번 주 세션</div><div class="v">${w.sessions}</div><div class="d">회</div></div>
+    <div class="tile"><div class="l">이번 주 볼륨</div><div class="v">${w.vol.toLocaleString()}</div><div class="d">kg</div></div>
+    <div class="tile"><div class="l">연속 훈련</div><div class="v">${w.streak}</div><div class="d">주째</div></div>
+  </div>`;
+}
+
+// 처음 실행할 때 한 번만 보여주는 간단한 사용법 안내
+function onboardingSheet() {
+  const sh = openSheet(`<h3>Dryland Log 사용법</h3>
+    <div class="stack" style="gap:14px">
+      <div class="row" style="align-items:flex-start;gap:12px"><span class="badge" style="min-width:22px;text-align:center;flex:none">1</span><span class="small ink2"><b style="color:var(--ink)">운동 시작</b>을 누르고 종목을 추가하세요. 지난번 무게와 세트가 자동으로 채워집니다.</span></div>
+      <div class="row" style="align-items:flex-start;gap:12px"><span class="badge" style="min-width:22px;text-align:center;flex:none">2</span><span class="small ink2">무게·횟수 칸을 눌러 입력하고 <b style="color:var(--ink)">세트 완료</b>를 누르면 휴식 타이머가 자동으로 시작됩니다.</span></div>
+      <div class="row" style="align-items:flex-start;gap:12px"><span class="badge" style="min-width:22px;text-align:center;flex:none">3</span><span class="small ink2">운동을 마치면 <b style="color:var(--ink)">운동 완료</b>를 누르세요. 기록·분석·컨디션은 아래 탭에서 언제든 볼 수 있습니다.</span></div>
+    </div>
+    <button class="btn btn-primary btn-block" data-a="ok" style="margin-top:4px">시작하기</button>`,
+    { onClose: () => { S.settings.onboarded = true; save(); } });
+  sh.el.addEventListener('click', (e) => { if (e.target.closest('[data-a="ok"]')) sh.close(); });
+}
+
 // ── 홈 ──
 function renderHome() {
   const last = doneSessions().find((s) => s.type === 'weight' && s.items.length);
@@ -58,6 +82,7 @@ function renderHome() {
     ${ev ? `<button class="list-btn" data-act="events"><span class="num" style="font-size:34px;font-weight:700;line-height:1;color:var(--clock)">D-${daysUntil(ev.date) || 'DAY'}</span>
       <span class="grow"><b>${esc(ev.name)}</b><div class="small muted">${fmtDate(ev.date, true)}</div></span></button>`
     : `<button class="list-btn" data-act="events"><span class="grow ink2">다가오는 대회가 없습니다</span><span class="small" style="color:var(--acc)">대회 일정 추가</span></button>`}
+    ${weekSummaryTiles()}
     <section><div class="sec-h"><h2>루틴</h2><button data-act="routines">관리</button></div>
       <div class="stack">${S.routines.length ? S.routines.map((r) => `<div class="list-btn" style="padding:0">
         <button class="grow" data-act="rt-start" data-id="${r.id}" style="text-align:left;padding:14px;min-width:0"><b>${esc(r.name)}</b>
@@ -252,7 +277,7 @@ function renderProgress() {
     const es = sets.map((x) => e1rm(ex, x)).filter((v) => v != null);
     const ws = sets.map((x) => x.w).filter((v) => v != null);
     const rs = sets.map((x) => x.r).filter((v) => v != null);
-    const vol = sets.reduce((a, x) => a + (x.w != null && x.r ? (ex.mode === 'added' ? (S.settings.bw || 0) + x.w : x.w) * x.r : 0), 0);
+    const vol = sets.reduce((a, x) => a + (x.w != null && x.r ? (ex.mode === 'added' ? (latestBW() || 0) + x.w : x.w) * x.r : 0), 0);
     const val = { e1rm: es.length ? Math.max(...es) : null, max: ws.length ? Math.max(...ws) : null, vol: vol || null, reps: rs.length ? Math.max(...rs) : null, total: rs.length ? rs.reduce((a, b) => a + b, 0) : null }[M];
     if (ws.length && (bestW == null || Math.max(...ws) > bestW.v)) bestW = { v: Math.max(...ws), d: h.date };
     if (es.length && (bestE == null || Math.max(...es) > bestE.v)) bestE = { v: Math.max(...es), d: h.date };
@@ -269,7 +294,7 @@ function renderProgress() {
   return `${head}<div class="page">${condSection}
     <div class="stack" style="gap:8px"><div class="chips">${chips}</div>
       <button class="btn btn-block" data-act="prog-pick" style="justify-content:space-between"><span class="ellipsis"><b>${esc(exPrimary(ex))}</b> <span class="small muted">${esc(exSecondary(ex))}</span></span>${ICON.down}</button></div>
-    ${ex.mode === 'added' && !S.settings.bw ? '<button class="banner" data-act="set-bw" style="text-align:left;color:var(--ink)"><span class="grow">몸무게를 입력하면 추가 중량 종목의 추정 1RM을 몸무게까지 포함해 계산합니다</span><b>입력</b></button>' : ''}
+    ${ex.mode === 'added' && !latestBW() ? '<button class="banner accent" data-act="set-bw"><span class="grow">몸무게를 입력하면 추가 중량 종목의 추정 1RM을 몸무게까지 포함해 계산합니다</span><b>입력</b></button>' : ''}
     <div class="seg">${metrics.map(([k, l]) => `<button class="${k === M ? 'on' : ''}" data-act="prog-metric" data-m="${k}">${l}</button>`).join('')}</div>
     <div class="chart" id="chart"></div>
     <div class="tiles">${tiles}</div>

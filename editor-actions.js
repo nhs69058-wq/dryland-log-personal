@@ -72,11 +72,28 @@ function ungroup(items, it) {
   fixGroups(items);
   save(); render();
 }
+// 작업 세트 중 가장 무거운 무게를 기준으로 40 · 60 · 80% 워밍업 3세트를 만들어 맨 앞에 넣음
+function autoWarmup(it) {
+  const ex = exById(it.ex), m = MODES[ex.mode];
+  const work = it.sets.filter((s) => !s.wu && s.w != null);
+  if (!work.length) return;
+  const top = Math.max(...work.map((s) => s.w));
+  const round = (v) => Math.max(m.s1, Math.round(v / m.s1) * m.s1);
+  const plan = [[0.4, 5], [0.6, 3], [0.8, 1]];
+  it.sets = it.sets.filter((s) => !s.wu);
+  it.sets.unshift(...plan.map(([pct, r]) => ({ w: round(top * pct), r, wu: true, done: false })));
+  save();
+  render();
+  toast('워밍업 세트를 채웠습니다');
+}
 ACTS.exmenu = (b) => {
   const c = edCtx(), it = findItem(c, b.dataset.item);
   if (!it) return;
   const ex = exById(it.ex), items = c.obj.items, next = items[items.indexOf(it) + 1];
   const opts = [{ label: it.note ? '메모 수정' : '메모 추가', sub: '스트랩, 그립, 속도, 체감 난이도 등', fn: () => noteSheet(it) }];
+  if (c.kind !== 'routine' && hasW(ex) && it.sets.some((s) => !s.wu && s.w)) {
+    opts.push({ label: '워밍업 세트 자동 채우기', sub: '작업 무게의 40 · 60 · 80%로 3세트', fn: () => autoWarmup(it) });
+  }
   if (it.g) opts.push({ label: '슈퍼세트에서 빼기', fn: () => ungroup(items, it) });
   else if (next) opts.push({ label: '아래 종목과 슈퍼세트로 묶기', sub: `${exPrimary(ex)} + ${exPrimary(exById(next.ex))}`, fn: () => { it.g = next.g || uid(); next.g = it.g; save(); render(); } });
   opts.push({ label: '위로 이동', fn: () => moveBlock(items, it, -1) }, { label: '아래로 이동', fn: () => moveBlock(items, it, 1) });

@@ -13,10 +13,11 @@ function renderMore() {
   const tog = (label, k, sub) => `<label class="list-btn" style="cursor:pointer"><span class="grow">${label}${sub ? `<div class="small muted">${sub}</div>` : ''}</span>
     <input type="checkbox" data-input="toggle" data-k="${k}" ${st[k] ? 'checked' : ''} style="width:24px;height:24px;padding:0;accent-color:var(--acc);flex:none"></label>`;
   const bd = st.lastBackup ? `${fmtDate(iso(new Date(st.lastBackup)))} 백업` : '백업한 적 없음';
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   return `<div class="top"><h1 style="font-size:22px">더보기</h1></div>
   <div class="page">
     <section><div class="sec-h"><h2>운동 설정</h2></div><div class="stack" style="gap:6px">
-      ${row('몸무게', st.bw ? `<span class="num" style="font-size:17px">${num(st.bw)}</span> kg` : '입력 안 함', 'set-bw')}
+      ${row('몸무게', latestBW() ? `<span class="num" style="font-size:17px">${num(latestBW())}</span> kg` : '입력 안 함', 'set-bw')}
       ${row('기본 휴식 시간', `<span class="num" style="font-size:17px">${fmtDur(st.rest * 1000)}</span>`, 'set-rest')}
       ${tog('휴식 끝 소리', 'sound')}
       ${tog('휴식 끝 진동', 'vibrate')}
@@ -38,6 +39,7 @@ function renderMore() {
     </div></section>
     <section><div class="sec-h"><h2>앱</h2></div><div class="stack" style="gap:6px">
       ${deferredInstall ? '<button class="btn btn-primary btn-block" data-act="install">홈 화면에 앱 설치</button>'
+        : isIOS ? '<div class="card small ink2">사파리 하단 <b>공유</b> 버튼 → <b>홈 화면에 추가</b>를 누르면 주소창 없이 앱처럼 열립니다. 이미 설치했다면 그대로 쓰시면 됩니다.</div>'
         : '<div class="card small ink2">크롬 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누르면 주소창 없이 앱처럼 열립니다. 이미 설치했다면 그대로 쓰시면 됩니다.</div>'}
       <div class="small muted" style="text-align:center">앱 버전 ${APP_VERSION}</div>
     </div></section>
@@ -56,16 +58,28 @@ INPUTS.toggle = async (el) => {
   if (k === 'awake') { if (el.checked && activeSession()) wake.on(); else if (!el.checked && wake.lock) { wake.lock.release(); wake.lock = null; } }
 };
 ACTS['set-bw'] = () => {
-  const sh = openSheet(`<h3>몸무게</h3><p class="small ink2" style="margin:0">중량 풀업·친업처럼 추가 중량 종목의 추정 1RM과 볼륨 계산에 씁니다.</p>
-    <input inputmode="decimal" value="${S.settings.bw ?? ''}" placeholder="kg">
-    <div class="row"><button class="btn grow" data-a="clear">지우기</button><button class="btn btn-primary grow" data-a="ok">저장</button></div>`);
+  const sh = openSheet('', { tall: S.bodyweights.length > 2 });
+  const draw = () => {
+    const entries = S.bodyweights.slice().sort((a, b) => b.date.localeCompare(a.date));
+    sh.el.innerHTML = `<div class="grab"></div><h3>몸무게 기록</h3>
+      <p class="small ink2" style="margin:0">중량 풀업·친업처럼 추가 중량 종목의 추정 1RM과 볼륨 계산에 최신 값을 씁니다.</p>
+      <div class="row"><label class="f grow">날짜<input type="date" name="d" value="${today()}"></label><label class="f grow">몸무게(kg)<input name="w" inputmode="decimal" placeholder="${entries[0] ? num(entries[0].w) : '예: 68'}"></label></div>
+      <button class="btn btn-primary btn-block" data-a="add">기록 추가</button>
+      ${entries.length > 1 ? '<div class="chart" id="bw-chart"></div>' : ''}
+      <div class="stack" style="gap:6px">${entries.map((e) => `<div class="row card" style="background:var(--s2)"><span class="grow small ink2">${fmtDate(e.date, true)}</span><b class="num" style="font-size:17px">${num(e.w)}kg</b><button class="btn btn-sm btn-danger" data-del="${e.date}">삭제</button></div>`).join('') || '<div class="small muted">아직 기록이 없습니다. 오늘 몸무게를 추가해 보세요.</div>'}</div>`;
+    if (entries.length > 1) mountChart(sh.el.querySelector('#bw-chart'), entries.slice().reverse().map((e) => ({ date: e.date, y: e.w, tip: '' })), (v) => num(v) + 'kg');
+  };
   sh.el.addEventListener('click', (e) => {
-    const a = e.target.closest('[data-a]');
-    if (!a) return;
-    const v = parseFloat(sh.el.querySelector('input').value);
-    S.settings.bw = a.dataset.a === 'ok' && v > 0 ? v : null;
-    save(); sh.close(); render();
+    const del = e.target.closest('[data-del]');
+    if (del) { S.bodyweights = S.bodyweights.filter((b) => b.date !== del.dataset.del); save(); draw(); render(); return; }
+    if (!e.target.closest('[data-a="add"]')) return;
+    const d = sh.el.querySelector('[name="d"]').value || today();
+    const w = parseFloat(sh.el.querySelector('[name="w"]').value);
+    if (!(w > 0)) return toast('몸무게를 입력해 주세요');
+    setBW(d, w);
+    draw(); render(); toast('몸무게를 기록했습니다');
   });
+  draw();
 };
 ACTS['set-rest'] = () => {
   const opts = [45, 60, 90, 120, 150, 180, 240];

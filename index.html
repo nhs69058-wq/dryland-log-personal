@@ -102,7 +102,7 @@ body.kp-open #dock{bottom:0;padding-bottom:var(--safe-b);background:var(--s1)}
 #restbar{display:flex;align-items:center;gap:12px;padding:8px 12px;background:var(--s1);border-top:1px solid var(--line)}
 #restbar .dial{width:46px;height:46px;flex:none}
 #restbar .t{font-family:var(--num);font-weight:600;font-size:32px;line-height:1;font-variant-numeric:tabular-nums;min-width:74px}
-#restbar .lbl{font-size:11px;color:var(--mute);line-height:1.2}
+#restbar .lbl{font-size:11px;color:var(--mute);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}
 #restbar.over{background:rgba(255,91,79,.16)}
 #restbar.over .t{color:var(--clock)}
 #restbar .ctl{margin-left:auto;display:flex;gap:6px}
